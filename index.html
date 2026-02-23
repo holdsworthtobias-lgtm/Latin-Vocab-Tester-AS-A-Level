@@ -144,6 +144,15 @@ hr{border:none; height:1px; background:var(--border); margin:18px 0}
 
 .toast{min-height:20px; color:var(--muted); font-size:14px}
 
+.quizProg{margin-top:12px}
+.quizProgBar{height:10px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.03);overflow:hidden}
+.quizProgFill{height:100%;width:0%;background:rgba(122,162,255,.55);transition:width .25s ease}
+@media (max-width:600px){
+  .btn.big{font-size:18px}
+  .row.tight{gap:12px}
+}
+
+
 
 /* --- Responsive tweaks for phones --- */
 @media (max-width: 600px){
@@ -306,12 +315,14 @@ hr{border:none; height:1px; background:var(--border); margin:18px 0}
 
           <div class="row">
             <div>
-              <label for="selStrict">Typing strictness</label>
-              <select id="selStrict">
-                <option value="lenient" selected>Lenient (recommended)</option>
-                <option value="strict">Strict</option>
-              </select>
-              <div class="smallNote">Lenient ignores punctuation/case and allows tiny typos.</div>
+              <div style="display:none"><input id="toggleTypos" type="checkbox" checked></div>
+              <div style="display:none">
+                <label for="selStrict">Typing strictness</label>
+                <select id="selStrict">
+                  <option value="lenient" selected>Lenient (recommended)</option>
+                  <option value="strict">Strict</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -323,7 +334,7 @@ hr{border:none; height:1px; background:var(--border); margin:18px 0}
             </div>
             <div style="flex:1">
               <details class="details" id="bulkDetails" style="margin-top:0">
-                <summary>Paste vocab (bulk)</summary>
+                <summary>📥 Import your vocab</summary>
                 <div style="margin-top:12px">
                   <div class="row">
                     <div>
@@ -345,12 +356,12 @@ hr{border:none; height:1px; background:var(--border); margin:18px 0}
                   </div>
 
                   <label for="bulkText">Paste lines</label>
-                  <textarea id="bulkText" rows="8" placeholder="One per line, e.g.
-acer, acris, acre - sharp
-mitto - send
-rex, regis (m) - king"></textarea>
+                  <textarea id="bulkText" rows="8" placeholder="Paste your vocab list (one per line), e.g.
+amo - love
+rex, regis (m) - king
+bellum - war"></textarea>
                   <div class="row tight" style="margin-top:12px">
-                    <button id="btnBulkAdd" class="btn primary">Add pasted vocab</button>
+                    <button id="btnBulkAdd" class="btn primary">📥 Import your vocab</button>
                     <button id="btnBulkClear" class="btn bad">Clear pasted box</button>
                   </div>
                   <div class="toast" id="bulkToast"></div>
@@ -386,6 +397,9 @@ rex, regis (m) - king"></textarea>
             <button id="btnBackMenu" class="btn">Back to menu</button>
           </div>
         </div>
+
+
+        <div class="quizProg"><div class="quizProgBar"><div id="qProgFill" class="quizProgFill"></div></div></div>
 
         <hr/>
 
@@ -1015,6 +1029,42 @@ function ensureWordStat(id) {
   const SETTINGS_KEY = "lvt_v9_settings";
   const CUSTOM_KEY = "lvt_v9_custom"; // pasted vocab only
 
+
+  // ===== Daily 10 streak =====
+  const DAILY_KEY = "lvt_daily_streak_v1";
+  function isoDateLocal(d = new Date()){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,"0");
+    const da = String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${da}`;
+  }
+  function loadDaily(){
+    try{
+      const raw = localStorage.getItem(DAILY_KEY);
+      if(!raw) return {streak:0,last:null};
+      const o = JSON.parse(raw);
+      return {streak: Number(o.streak||0), last: o.last||null};
+    }catch{ return {streak:0,last:null}; }
+  }
+  function saveDaily(d){ localStorage.setItem(DAILY_KEY, JSON.stringify({streak:d.streak||0,last:d.last||null})); }
+  function getDailyInfo(){
+    const today = isoDateLocal();
+    const d = loadDaily();
+    return {streak:d.streak||0, doneToday: d.last===today, last:d.last||null};
+  }
+  function completeDaily(){
+    const today = isoDateLocal();
+    const d = loadDaily();
+    if(d.last===today) return getDailyInfo();
+    const yd = new Date(); yd.setDate(yd.getDate()-1);
+    const yesterday = isoDateLocal(yd);
+    d.streak = (d.last===yesterday) ? (Number(d.streak||0)+1) : 1;
+    d.last = today;
+    saveDaily(d);
+    return getDailyInfo();
+  }
+
+
   const $ = (id) => document.getElementById(id);
 
   const pages = {
@@ -1117,6 +1167,7 @@ function ensureWordStat(id) {
   const selCount = $("selCount");
   const selTime = $("selTime");
   const selStrict = $("selStrict");
+  const toggleTypos = $("toggleTypos");
 
   const btnAllTypes = $("btnAllTypes");
   const btnStart = $("btnStart");
@@ -1141,6 +1192,14 @@ function ensureWordStat(id) {
       if (btnReview) {
         btnReview.textContent = reviewCount ? `Review mistakes (${reviewCount})` : "Review mistakes";
         btnReview.disabled = (reviewCount === 0);
+    // Daily button label (streak)
+    const di = getDailyInfo();
+    if (btnDaily) {
+      const base = "Daily (10)";
+      const s = di.streak || 0;
+      const done = di.doneToday ? " • done today" : "";
+      btnDaily.textContent = s ? `🔥 ${base} — Streak ${s}${done}` : `🔥 ${base}${done}`;
+    }
       }
       if (btnFlagged) {
         btnFlagged.textContent = flaggedCount ? `Flagged words (${flaggedCount})` : "Flagged words";
@@ -1216,7 +1275,7 @@ function ensureWordStat(id) {
       dir: selDir.value,
       count: selCount.value,
       time: selTime.value,
-      strict: selStrict.value,
+      strict: "lenient",
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
@@ -1232,11 +1291,12 @@ function ensureWordStat(id) {
     selDir.value = s.dir || "la-en";
     selCount.value = s.count || "20";
     selTime.value = s.time || "0";
-    selStrict.value = s.strict || "lenient";
+    if (selStrict) selStrict.value = "lenient";
+    if (toggleTypos) toggleTypos.checked = true;
   }
 
   // Save settings on any change
-  [secAL, secProse, secVerse, selMode, selDir, selCount, selTime, selStrict].forEach(el => {
+  [secAL, secProse, secVerse, secAen2, selMode, selDir, selCount, selTime].filter(Boolean).forEach(el => {
     el.addEventListener("change", () => {
       saveSettings();
       refreshPreview();
@@ -1412,6 +1472,7 @@ function ensureWordStat(id) {
   let timerTimeout = null;
 
   const state = {
+    isDaily: false,
     running: false,
     questions: [],
     idx: 0,
@@ -1577,6 +1638,13 @@ function ensureWordStat(id) {
 
     tQ.textContent = String(state.idx + 1);
     tTotal.textContent = String(state.questions.length);
+
+    // progress bar
+    const prog = document.getElementById("qProgFill");
+    if (prog) {
+      const pct = Math.round(((state.idx + 1) / Math.max(1, state.questions.length)) * 100);
+      prog.style.width = pct + "%";
+    }
     tScore.textContent = String(state.score);
     tStreak.textContent = String(state.streak);
 
@@ -1666,19 +1734,23 @@ function ensureWordStat(id) {
 
   function showFeedback(ok, userAnswer, reason="") {
     clearTimer();
+    if (state.autoNext) { clearTimeout(state.autoNext); state.autoNext = null; }
     const q = state.cur;
     const correct = q.answer;
 
     feedback.style.display = "block";
     fbTitle.textContent = ok ? "Correct ✅" : "Incorrect ❌";
+    // Make feedback obvious
+    toast(testToast, ok ? "✅ Correct" : `Incorrect. Correct answer: ${correct}`);
+    try { feedback.scrollIntoView({behavior:"smooth", block:"nearest"}); } catch(e) {}
 
     // richer feedback: show both answers when relevant
     const you = (userAnswer && String(userAnswer).trim()) ? userAnswer : "—";
     if (ok) {
-      fbBody.textContent = reason || "Nice.";
+      fbBody.textContent = (reason || "Nice.") + "  •  Press Next to continue.  •  Press F to flag." ;
     } else {
       const why = reason ? (reason + " — ") : "";
-      fbBody.textContent = `${why}Correct: ${correct} • Your answer: ${you}`;
+      fbBody.textContent = `${why}Correct: ${correct} • Your answer: ${you}  •  Press Next to continue.  •  Press F to flag.`;
     }
 
     if (q.item.notes && q.item.notes !== "Custom") {
@@ -1724,13 +1796,16 @@ function ensureWordStat(id) {
 
     // next
     btnNext.focus();
+
+    // (No auto-advance) Wait for the user to press Next.
+
   }
 
 function submitTyped() {
     if (!state.running) return;
     const q = state.cur;
     const user = ansInput.value;
-    const ok = compareTyped(user, q.answer, state.settings.strictness);
+    const ok = compareTyped(user, q.answer, "lenient");
     showFeedback(ok, user, ok ? "Correct" : "Not quite");
   }
 
@@ -1773,6 +1848,7 @@ function submitTyped() {
 
   function nextQuestion() {
     if (!state.running) return;
+    if (state.autoNext) { clearTimeout(state.autoNext); state.autoNext = null; }
 
     if (feedback.style.display !== "block") {
       // If they hit next without answering, treat as skip
@@ -1791,6 +1867,14 @@ function submitTyped() {
   function finishTest() {
     clearTimer();
     state.running = false;
+
+    // Daily streak: count only if Daily(10) completed (not ended early)
+    try{
+      if(state.isDaily && state.idx >= state.questions.length && state.questions.length === 10){
+        const info = completeDaily();
+        toast(testToast, `🔥 Daily streak: ${info.streak}`);
+      }
+    }catch(e){}
 
     // results
     const total = state.questions.length;
@@ -1882,6 +1966,7 @@ function submitTyped() {
   }
 
   btnStart.addEventListener("click", () => {
+      state.isDaily = false;
     try {
       const bank = buildBank();
       startTestFrom(bank, false);
@@ -1894,6 +1979,7 @@ function submitTyped() {
   
   if (btnDaily) {
     btnDaily.addEventListener("click", () => {
+      state.isDaily = true;
       try {
         const bank = buildBank();
         // Daily practice: 10 questions, weighted toward due/wrong/difficult
@@ -1907,6 +1993,7 @@ function submitTyped() {
 
   if (btnReview) {
     btnReview.addEventListener("click", () => {
+      state.isDaily = false;
       try {
         const ids = PROGRESS.reviewQueue.slice();
         const bank = VOCAB.filter(v => ids.includes(v.id));
@@ -1925,6 +2012,7 @@ function submitTyped() {
   }
   if (btnFlagged) {
     btnFlagged.addEventListener("click", () => {
+      state.isDaily = false;
       try {
         const ids = Object.keys(PROGRESS.flagged || {});
         const bankAll = buildBank();
@@ -1962,7 +2050,12 @@ btnBackMenu.addEventListener("click", () => {
   ansInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      submitTyped();
+      // If feedback is showing, Enter advances; otherwise it submits
+      if (feedback.style.display === "block") {
+        nextQuestion();
+      } else {
+        submitTyped();
+      }
     }
   });
 
@@ -2018,6 +2111,13 @@ btnBackMenu.addEventListener("click", () => {
 
   btnNext.addEventListener("click", nextQuestion);
 
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && feedback.style.display === "block") {
+      e.preventDefault();
+      nextQuestion();
+    }
+  });
+
   // Expose critical handlers for inline onclick failsafes
   window.__lvSkip = skipQuestion;
   window.__lvEnd = finishTest;
@@ -2025,6 +2125,7 @@ btnBackMenu.addEventListener("click", () => {
   if (btnStar) {
     
   function toggleFlagCurrent() {
+    if (state.autoNext) { clearTimeout(state.autoNext); state.autoNext = null; }
     const id = btnStar.dataset.wordId;
     if (!id) return;
     if (PROGRESS.flagged[id]) {
@@ -2068,8 +2169,19 @@ btnStar.addEventListener("click", toggleFlagCurrent);
   btnReturnMenu.addEventListener("click", () => {
     showPage("menu");
   });
+  // Flag shortcut: press F when feedback is showing
+  document.addEventListener("keydown", (e) => {
+    if (!state.running) return;
+    if (feedback.style.display !== "block") return;
+    if (e.key === "f" || e.key === "F") {
+      e.preventDefault();
+      toggleFlagCurrent();
+    }
+  });
+
 
   btnRedoWrong.addEventListener("click", () => {
+      state.isDaily = false;
     const wrongItems = state.wrong.map(w => w.item);
     if (!wrongItems.length) return;
     startTestFrom(wrongItems, true);
